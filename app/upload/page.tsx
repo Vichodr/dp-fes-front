@@ -11,9 +11,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
-import { Upload, FileText, X, CheckCircle, AlertTriangle, ArrowLeft } from "lucide-react"
+import { Upload, FileText, X, CheckCircle, AlertTriangle, ArrowLeft, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { AuthService } from "@/lib/authService"
+import { DocumentService } from "@/lib/documentService"
 
 export default function UploadPage() {
   const [userRole, setUserRole] = useState("")
@@ -25,15 +27,24 @@ export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadComplete, setUploadComplete] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
 
   useEffect(() => {
-    const role = localStorage.getItem("userRole")
-    if (!role) {
-      router.push("/")
-      return
+    const checkAuth = async () => {
+      try {
+        const role = AuthService.getCurrentUserRole()
+        if (!role) {
+          router.push("/")
+          return
+        }
+        setUserRole(role)
+      } catch (error) {
+        console.error("Error checking auth:", error)
+        router.push("/")
+      }
     }
-    setUserRole(role)
+    checkAuth()
   }, [router])
 
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -66,17 +77,18 @@ export default function UploadPage() {
   const validateAndSetFile = (selectedFile: File) => {
     // Validar tipo de archivo
     if (selectedFile.type !== "application/pdf") {
-      alert("Solo se permiten archivos PDF")
+      setError("Solo se permiten archivos PDF")
       return
     }
 
     // Validar tamaño (10MB máximo)
     if (selectedFile.size > 10 * 1024 * 1024) {
-      alert("El archivo no puede superar los 10MB")
+      setError("El archivo no puede superar los 10MB")
       return
     }
 
     setFile(selectedFile)
+    setError("") // Limpiar errores anteriores
 
     // Auto-completar título si está vacío
     if (!title) {
@@ -87,37 +99,53 @@ export default function UploadPage() {
 
   const removeFile = () => {
     setFile(null)
+    setError("")
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!file || !title || !documentType) {
-      alert("Por favor completa todos los campos requeridos")
+      setError("Por favor completa todos los campos requeridos")
       return
     }
 
     setIsUploading(true)
     setUploadProgress(0)
+    setError("")
 
-    // Simular proceso de subida
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsUploading(false)
-          setUploadComplete(true)
+    try {
+      // Simular progreso de subida
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 90) {
+            clearInterval(progressInterval)
+            return 90
+          }
+          return prev + 10
+        })
+      }, 200)
 
-          // Redirigir después de 3 segundos
-          setTimeout(() => {
-            router.push("/documents")
-          }, 3000)
+      // Subir documento al backend
+      await DocumentService.uploadDocument(file)
+      
+      clearInterval(progressInterval)
+      setUploadProgress(100)
+      
+      setTimeout(() => {
+        setIsUploading(false)
+        setUploadComplete(true)
 
-          return 100
-        }
-        return prev + 10
-      })
-    }, 200)
+        // Redirigir después de 3 segundos
+        setTimeout(() => {
+          router.push("/documents")
+        }, 3000)
+      }, 500)
+
+    } catch (error) {
+      setIsUploading(false)
+      setError(error instanceof Error ? error.message : "Error al subir el documento")
+    }
   }
 
   const formatFileSize = (bytes: number) => {
@@ -170,6 +198,17 @@ export default function UploadPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2 text-red-600">
+            <AlertCircle className="w-4 h-4" />
+            <span>{error}</span>
+            <Button variant="ghost" size="sm" onClick={() => setError("")} className="ml-auto">
+              ×
+            </Button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Form */}
           <div className="lg:col-span-2">
@@ -243,12 +282,13 @@ export default function UploadPage() {
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="Ej: Solicitud de Vacaciones - Enero 2024"
                       required
+                      disabled={isUploading}
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="type">Tipo de Documento *</Label>
-                    <Select value={documentType} onValueChange={setDocumentType} required>
+                    <Select value={documentType} onValueChange={setDocumentType} required disabled={isUploading}>
                       <SelectTrigger>
                         <SelectValue placeholder="Selecciona el tipo de documento" />
                       </SelectTrigger>
@@ -272,6 +312,7 @@ export default function UploadPage() {
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="Describe brevemente el contenido del documento..."
                       rows={3}
+                      disabled={isUploading}
                     />
                   </div>
                 </CardContent>

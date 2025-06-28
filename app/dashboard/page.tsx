@@ -4,57 +4,69 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Bell, FileText, Upload, Users, Eye, PenTool, CheckCircle, XCircle, Clock } from "lucide-react"
+import { Bell, FileText, Upload, Users, Eye, PenTool, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-
-// Datos simulados
-const mockDocuments = [
-  { id: 1, title: "Solicitud de Vacaciones", status: "En revisión", date: "2024-01-15", signatures: 0 },
-  { id: 2, title: "Contrato de Trabajo", status: "Firmado", date: "2024-01-14", signatures: 3 },
-  { id: 3, title: "Informe Mensual", status: "Rechazado", date: "2024-01-13", signatures: 0 },
-  { id: 4, title: "Propuesta Proyecto", status: "En revisión", date: "2024-01-12", signatures: 1 },
-]
-
-const mockNotifications = [
-  { id: 1, message: "Documento 'Solicitud de Vacaciones' requiere tu firma", type: "pending" },
-  { id: 2, message: "Documento 'Contrato de Trabajo' ha sido firmado", type: "success" },
-  { id: 3, message: "Documento 'Informe Mensual' ha sido rechazado", type: "error" },
-]
+import { AuthService } from "@/lib/authService"
+import { DocumentService } from "@/lib/documentService"
+import { Document } from "@/lib/api"
 
 export default function Dashboard() {
   const [userRole, setUserRole] = useState("")
-  const [userEmail, setUserEmail] = useState("")
+  const [userName, setUserName] = useState("")
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
-    const role = localStorage.getItem("userRole")
-    const email = localStorage.getItem("userEmail")
-    if (!role || !email) {
-      router.push("/")
-      return
+    const checkAuth = async () => {
+      try {
+        const role = AuthService.getCurrentUserRole()
+        const user = AuthService.getCurrentUser()
+        if (!role || !user) {
+          router.push("/")
+          return
+        }
+        setUserRole(role)
+        setUserName(user.name)
+        await loadDocuments()
+      } catch (error) {
+        console.error("Error checking auth:", error)
+        router.push("/")
+      }
     }
-    setUserRole(role)
-    setUserEmail(email)
+    checkAuth()
   }, [router])
+
+  const loadDocuments = async () => {
+    try {
+      setIsLoading(true)
+      const response = await DocumentService.getUserDocuments()
+      setDocuments(response.documents)
+    } catch (error) {
+      console.error("Error loading documents:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "En revisión":
+      case "PENDING":
         return (
           <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
             <Clock className="w-3 h-3 mr-1" />
             En revisión
           </Badge>
         )
-      case "Firmado":
+      case "SIGNED":
         return (
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
             <CheckCircle className="w-3 h-3 mr-1" />
             Firmado
           </Badge>
         )
-      case "Rechazado":
+      case "REJECTED":
         return (
           <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
             <XCircle className="w-3 h-3 mr-1" />
@@ -68,24 +80,34 @@ export default function Dashboard() {
 
   const getRoleDisplayName = (role: string) => {
     switch (role) {
-      case "empleado":
+      case "EMPLOYEE":
         return "Empleado"
-      case "supervisor":
+      case "SUPERVISOR":
         return "Supervisor"
-      case "firmante":
+      case "SIGNER":
         return "Usuario Firmante"
-      case "gestor":
+      case "INSTITUTIONAL_MANAGER":
         return "Gestor Institucional"
+      case "ADMIN":
+        return "Administrador"
       default:
         return "Usuario"
     }
   }
 
   const handleLogout = () => {
-    localStorage.removeItem("userRole")
-    localStorage.removeItem("userEmail")
+    AuthService.logout()
     router.push("/")
   }
+
+  // Calcular estadísticas
+  const totalDocuments = documents.length
+  const pendingDocuments = documents.filter(doc => doc.status === "PENDING").length
+  const signedDocuments = documents.filter(doc => doc.status === "SIGNED").length
+  const rejectedDocuments = documents.filter(doc => doc.status === "REJECTED").length
+
+  // Obtener documentos recientes (últimos 4)
+  const recentDocuments = documents.slice(0, 4)
 
   if (!userRole) return null
 
@@ -105,7 +127,7 @@ export default function Dashboard() {
               <div className="text-sm text-gray-600">
                 <span className="font-medium">{getRoleDisplayName(userRole)}</span>
                 <br />
-                <span className="text-xs">{userEmail}</span>
+                <span className="text-xs">{userName}</span>
               </div>
               <Button variant="outline" onClick={handleLogout}>
                 Cerrar Sesión
@@ -129,7 +151,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Documentos</p>
-                  <p className="text-2xl font-bold text-gray-900">12</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalDocuments}</p>
                 </div>
                 <FileText className="w-8 h-8 text-blue-600" />
               </div>
@@ -141,7 +163,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">En Revisión</p>
-                  <p className="text-2xl font-bold text-yellow-600">3</p>
+                  <p className="text-2xl font-bold text-yellow-600">{pendingDocuments}</p>
                 </div>
                 <Clock className="w-8 h-8 text-yellow-600" />
               </div>
@@ -153,7 +175,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Firmados</p>
-                  <p className="text-2xl font-bold text-green-600">8</p>
+                  <p className="text-2xl font-bold text-green-600">{signedDocuments}</p>
                 </div>
                 <CheckCircle className="w-8 h-8 text-green-600" />
               </div>
@@ -165,7 +187,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Rechazados</p>
-                  <p className="text-2xl font-bold text-red-600">1</p>
+                  <p className="text-2xl font-bold text-red-600">{rejectedDocuments}</p>
                 </div>
                 <XCircle className="w-8 h-8 text-red-600" />
               </div>
@@ -183,7 +205,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {(userRole === "empleado" || userRole === "firmante") && (
+                  {(userRole === "EMPLOYEE" || userRole === "SIGNER") && (
                     <Link href="/upload">
                       <Button className="w-full h-20 flex flex-col items-center justify-center space-y-2">
                         <Upload className="w-6 h-6" />
@@ -202,7 +224,7 @@ export default function Dashboard() {
                     </Button>
                   </Link>
 
-                  {(userRole === "supervisor" || userRole === "firmante") && (
+                  {(userRole === "SUPERVISOR" || userRole === "SIGNER") && (
                     <Link href="/documents?filter=pending">
                       <Button
                         variant="outline"
@@ -214,7 +236,7 @@ export default function Dashboard() {
                     </Link>
                   )}
 
-                  {userRole === "gestor" && (
+                  {userRole === "INSTITUTIONAL_MANAGER" && (
                     <Link href="/users">
                       <Button
                         variant="outline"
@@ -236,32 +258,46 @@ export default function Dashboard() {
                 <CardDescription>Últimos documentos en el sistema</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {mockDocuments.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <FileText className="w-5 h-5 text-gray-400" />
-                        <div>
-                          <p className="font-medium text-gray-900">{doc.title}</p>
-                          <p className="text-sm text-gray-500">
-                            {doc.date} • {doc.signatures} firmas
-                          </p>
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                    <span className="ml-2 text-gray-600">Cargando documentos...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {recentDocuments.length === 0 ? (
+                      <div className="text-center py-8">
+                        <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-500">No hay documentos recientes</p>
+                      </div>
+                    ) : (
+                      recentDocuments.map((doc) => (
+                        <div
+                          key={doc.id}
+                          className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <FileText className="w-5 h-5 text-gray-400" />
+                            <div>
+                              <p className="font-medium text-gray-900">{doc.filename}</p>
+                              <p className="text-sm text-gray-500">
+                                {new Date(doc.created_at).toLocaleDateString('es-ES')}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            {getStatusBadge(doc.status)}
+                            <Link href={`/documents/${doc.id}`}>
+                              <Button variant="ghost" size="sm">
+                                Ver
+                              </Button>
+                            </Link>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center space-x-3">
-                        {getStatusBadge(doc.status)}
-                        <Link href={`/documents/${doc.id}`}>
-                          <Button variant="ghost" size="sm">
-                            Ver
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                      ))
+                    )}
+                  </div>
+                )}
                 <div className="mt-4">
                   <Link href="/documents">
                     <Button variant="outline" className="w-full">
@@ -285,16 +321,49 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {mockNotifications.map((notification) => (
-                    <div key={notification.id} className="p-3 border rounded-lg">
+                  {pendingDocuments > 0 && (
+                    <div className="p-3 border rounded-lg">
                       <div className="flex items-start space-x-2">
-                        {notification.type === "pending" && <Clock className="w-4 h-4 text-yellow-500 mt-0.5" />}
-                        {notification.type === "success" && <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />}
-                        {notification.type === "error" && <XCircle className="w-4 h-4 text-red-500 mt-0.5" />}
-                        <p className="text-sm text-gray-700">{notification.message}</p>
+                        <Clock className="w-4 h-4 text-yellow-500 mt-0.5" />
+                        <p className="text-sm text-gray-700">
+                          Tienes {pendingDocuments} documento{pendingDocuments > 1 ? 's' : ''} pendiente{pendingDocuments > 1 ? 's' : ''} de revisión
+                        </p>
                       </div>
                     </div>
-                  ))}
+                  )}
+                  
+                  {signedDocuments > 0 && (
+                    <div className="p-3 border rounded-lg">
+                      <div className="flex items-start space-x-2">
+                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                        <p className="text-sm text-gray-700">
+                          {signedDocuments} documento{signedDocuments > 1 ? 's' : ''} firmado{signedDocuments > 1 ? 's' : ''} exitosamente
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {rejectedDocuments > 0 && (
+                    <div className="p-3 border rounded-lg">
+                      <div className="flex items-start space-x-2">
+                        <XCircle className="w-4 h-4 text-red-500 mt-0.5" />
+                        <p className="text-sm text-gray-700">
+                          {rejectedDocuments} documento{rejectedDocuments > 1 ? 's' : ''} rechazado{rejectedDocuments > 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {totalDocuments === 0 && (
+                    <div className="p-3 border rounded-lg">
+                      <div className="flex items-start space-x-2">
+                        <FileText className="w-4 h-4 text-blue-500 mt-0.5" />
+                        <p className="text-sm text-gray-700">
+                          No hay documentos en el sistema. ¡Comienza subiendo tu primer documento!
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

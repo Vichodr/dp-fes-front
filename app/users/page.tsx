@@ -16,66 +16,22 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Users, UserPlus, Search, Edit, Trash2, ArrowLeft, Mail, Shield, Calendar } from "lucide-react"
+import { Users, UserPlus, Search, Edit, Trash2, ArrowLeft, Mail, Shield, Calendar, AlertCircle, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-
-// Datos simulados de usuarios
-const mockUsers = [
-  {
-    id: 1,
-    name: "Juan Pérez",
-    email: "juan.perez@institucion.cl",
-    role: "empleado",
-    status: "activo",
-    createdAt: "2024-01-10",
-    lastLogin: "2024-01-20",
-  },
-  {
-    id: 2,
-    name: "María González",
-    email: "maria.gonzalez@institucion.cl",
-    role: "supervisor",
-    status: "activo",
-    createdAt: "2024-01-08",
-    lastLogin: "2024-01-19",
-  },
-  {
-    id: 3,
-    name: "Carlos Silva",
-    email: "carlos.silva@institucion.cl",
-    role: "firmante",
-    status: "activo",
-    createdAt: "2024-01-12",
-    lastLogin: "2024-01-18",
-  },
-  {
-    id: 4,
-    name: "Ana López",
-    email: "ana.lopez@institucion.cl",
-    role: "empleado",
-    status: "inactivo",
-    createdAt: "2024-01-05",
-    lastLogin: "2024-01-15",
-  },
-  {
-    id: 5,
-    name: "Roberto Martínez",
-    email: "roberto.martinez@institucion.cl",
-    role: "supervisor",
-    status: "activo",
-    createdAt: "2024-01-03",
-    lastLogin: "2024-01-20",
-  },
-]
+import { AuthService } from "@/lib/authService"
+import { UserService } from "@/lib/userService"
+import { User, UserCreate } from "@/lib/api"
 
 export default function UsersPage() {
   const [userRole, setUserRole] = useState("")
-  const [users, setUsers] = useState(mockUsers)
+  const [users, setUsers] = useState<User[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState("")
   const [newUser, setNewUser] = useState({
     name: "",
     email: "",
@@ -85,20 +41,51 @@ export default function UsersPage() {
   const router = useRouter()
 
   useEffect(() => {
-    const role = localStorage.getItem("userRole")
-    if (!role || role !== "gestor") {
-      router.push("/dashboard")
-      return
+    const checkAuth = async () => {
+      console.log("🔍 UsersPage: Iniciando verificación de autenticación...")
+      try {
+        const role = AuthService.getCurrentUserRole()
+        console.log("🎭 UsersPage: Rol obtenido:", role)
+        
+        if (!role || role !== "INSTITUTIONAL_MANAGER") {
+          console.log("❌ UsersPage: Rol no válido, redirigiendo...")
+          router.push("/dashboard")
+          return
+        }
+        
+        console.log("✅ UsersPage: Rol válido, cargando usuarios...")
+        setUserRole(role)
+        await loadUsers()
+      } catch (error) {
+        console.error("❌ UsersPage: Error en verificación:", error)
+        router.push("/")
+      }
     }
-    setUserRole(role)
+    checkAuth()
   }, [router])
+
+  const loadUsers = async () => {
+    console.log("📡 UsersPage: Iniciando carga de usuarios...")
+    try {
+      setIsLoading(true)
+      const response = await UserService.getUsers()
+      console.log("✅ UsersPage: Usuarios cargados:", response)
+      setUsers(response.users)
+    } catch (error) {
+      console.error("❌ UsersPage: Error cargando usuarios:", error)
+      setError(error instanceof Error ? error.message : "Error al cargar usuarios")
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const getRoleBadge = (role: string) => {
     const roleConfig = {
-      empleado: { label: "Empleado", color: "bg-blue-50 text-blue-700 border-blue-200" },
-      supervisor: { label: "Supervisor", color: "bg-purple-50 text-purple-700 border-purple-200" },
-      firmante: { label: "Firmante", color: "bg-green-50 text-green-700 border-green-200" },
-      gestor: { label: "Gestor", color: "bg-orange-50 text-orange-700 border-orange-200" },
+      EMPLOYEE: { label: "Empleado", color: "bg-blue-50 text-blue-700 border-blue-200" },
+      SUPERVISOR: { label: "Supervisor", color: "bg-purple-50 text-purple-700 border-purple-200" },
+      SIGNER: { label: "Firmante", color: "bg-green-50 text-green-700 border-green-200" },
+      INSTITUTIONAL_MANAGER: { label: "Gestor", color: "bg-orange-50 text-orange-700 border-orange-200" },
+      ADMIN: { label: "Admin", color: "bg-red-50 text-red-700 border-red-200" },
     }
 
     const config = roleConfig[role as keyof typeof roleConfig] || {
@@ -113,8 +100,8 @@ export default function UsersPage() {
     )
   }
 
-  const getStatusBadge = (status: string) => {
-    return status === "activo" ? (
+  const getStatusBadge = (status: boolean) => {
+    return status ? (
       <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
         Activo
       </Badge>
@@ -130,47 +117,60 @@ export default function UsersPage() {
       user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesRole = roleFilter === "all" || user.role === roleFilter
-    const matchesStatus = statusFilter === "all" || user.status === statusFilter
+    const matchesStatus = statusFilter === "all" || user.is_active === (statusFilter === "activo")
 
     return matchesSearch && matchesRole && matchesStatus
   })
 
-  const handleCreateUser = () => {
-    if (!newUser.name || !newUser.email || !newUser.role) {
-      alert("Por favor completa todos los campos requeridos")
+  const handleCreateUser = async () => {
+    if (!newUser.name || !newUser.email || !newUser.role || !newUser.password) {
+      setError("Por favor completa todos los campos requeridos")
       return
     }
 
-    const newUserData = {
-      id: users.length + 1,
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      status: "activo",
-      createdAt: new Date().toISOString().split("T")[0],
-      lastLogin: "Nunca",
+    try {
+      const userData: UserCreate = {
+        name: newUser.name,
+        email: newUser.email,
+        password: newUser.password,
+        role: newUser.role as any,
+      }
+
+      await UserService.createUser(userData)
+      setNewUser({ name: "", email: "", role: "", password: "" })
+      setIsCreateDialogOpen(false)
+      await loadUsers() // Recargar la lista
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Error al crear usuario")
     }
-
-    setUsers([...users, newUserData])
-    setNewUser({ name: "", email: "", role: "", password: "" })
-    setIsCreateDialogOpen(false)
   }
 
-  const handleToggleStatus = (userId: number) => {
-    setUsers(
-      users.map((user) =>
-        user.id === userId ? { ...user, status: user.status === "activo" ? "inactivo" : "activo" } : user,
-      ),
-    )
+  const handleToggleStatus = async (userId: number, currentStatus: boolean) => {
+    try {
+      await UserService.toggleUserStatus(userId, !currentStatus)
+      await loadUsers() // Recargar la lista
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Error al cambiar estado del usuario")
+    }
   }
 
-  const handleDeleteUser = (userId: number) => {
+  const handleDeleteUser = async (userId: number) => {
     if (confirm("¿Estás seguro de que deseas eliminar este usuario?")) {
-      setUsers(users.filter((user) => user.id !== userId))
+      try {
+        await UserService.deleteUser(userId)
+        await loadUsers() // Recargar la lista
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Error al eliminar usuario")
+      }
     }
   }
 
-  if (!userRole) return null
+  console.log("🎨 UsersPage: Renderizando con userRole:", userRole, "isLoading:", isLoading)
+
+  if (!userRole) {
+    console.log("⏳ UsersPage: Esperando userRole...")
+    return null
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -195,6 +195,17 @@ export default function UsersPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2 text-red-600">
+            <AlertCircle className="w-4 h-4" />
+            <span>{error}</span>
+            <Button variant="ghost" size="sm" onClick={() => setError("")} className="ml-auto">
+              ×
+            </Button>
+          </div>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -215,7 +226,7 @@ export default function UsersPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Activos</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {users.filter((u) => u.status === "activo").length}
+                    {users.filter((u) => u.is_active).length}
                   </p>
                 </div>
                 <Shield className="w-8 h-8 text-green-600" />
@@ -229,7 +240,7 @@ export default function UsersPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Supervisores</p>
                   <p className="text-2xl font-bold text-purple-600">
-                    {users.filter((u) => u.role === "supervisor").length}
+                    {users.filter((u) => u.role === "SUPERVISOR").length}
                   </p>
                 </div>
                 <Shield className="w-8 h-8 text-purple-600" />
@@ -243,7 +254,7 @@ export default function UsersPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Empleados</p>
                   <p className="text-2xl font-bold text-blue-600">
-                    {users.filter((u) => u.role === "empleado").length}
+                    {users.filter((u) => u.role === "EMPLOYEE").length}
                   </p>
                 </div>
                 <Users className="w-8 h-8 text-blue-600" />
@@ -299,10 +310,11 @@ export default function UsersPage() {
                           <SelectValue placeholder="Selecciona un rol" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="empleado">Empleado</SelectItem>
-                          <SelectItem value="supervisor">Supervisor</SelectItem>
-                          <SelectItem value="firmante">Usuario Firmante</SelectItem>
-                          <SelectItem value="gestor">Gestor Institucional</SelectItem>
+                          <SelectItem value="EMPLOYEE">Empleado</SelectItem>
+                          <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
+                          <SelectItem value="SIGNER">Usuario Firmante</SelectItem>
+                          <SelectItem value="INSTITUTIONAL_MANAGER">Gestor Institucional</SelectItem>
+                          <SelectItem value="ADMIN">Administrador</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -348,10 +360,11 @@ export default function UsersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos los roles</SelectItem>
-                  <SelectItem value="empleado">Empleado</SelectItem>
-                  <SelectItem value="supervisor">Supervisor</SelectItem>
-                  <SelectItem value="firmante">Usuario Firmante</SelectItem>
-                  <SelectItem value="gestor">Gestor Institucional</SelectItem>
+                  <SelectItem value="EMPLOYEE">Empleado</SelectItem>
+                  <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
+                  <SelectItem value="SIGNER">Usuario Firmante</SelectItem>
+                  <SelectItem value="INSTITUTIONAL_MANAGER">Gestor Institucional</SelectItem>
+                  <SelectItem value="ADMIN">Administrador</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -383,77 +396,88 @@ export default function UsersPage() {
         {/* Users Table */}
         <Card>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Usuario</TableHead>
-                  <TableHead>Rol</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Creado</TableHead>
-                  <TableHead>Último Acceso</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.length === 0 ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                <span className="ml-2 text-gray-600">Cargando usuarios...</span>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <p className="text-gray-500">No se encontraron usuarios</p>
-                    </TableCell>
+                    <TableHead>Usuario</TableHead>
+                    <TableHead>Rol</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Creado</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ) : (
-                  filteredUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <span className="text-sm font-medium text-blue-600">
-                              {user.name
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")
-                                .toUpperCase()}
-                            </span>
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-900">{user.name}</p>
-                            <p className="text-sm text-gray-500 flex items-center">
-                              <Mail className="w-3 h-3 mr-1" />
-                              {user.email}
-                            </p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{getRoleBadge(user.role)}</TableCell>
-                      <TableCell>{getStatusBadge(user.status)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center text-sm text-gray-500">
-                          <Calendar className="w-3 h-3 mr-1" />
-                          {user.createdAt}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-gray-500">{user.lastLogin}</span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(user.id)}>
-                            {user.status === "activo" ? "Desactivar" : "Activar"}
-                          </Button>
-                          <Button variant="ghost" size="sm">
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => handleDeleteUser(user.id)}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                </TableHeader>
+                <TableBody>
+                  {filteredUsers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8">
+                        <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-500">No se encontraron usuarios</p>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ) : (
+                    filteredUsers.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                              <span className="text-sm font-medium text-blue-600">
+                                {user.name
+                                  .split(" ")
+                                  .map((n) => n[0])
+                                  .join("")
+                                  .toUpperCase()}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">{user.name}</p>
+                              <p className="text-sm text-gray-500 flex items-center">
+                                <Mail className="w-3 h-3 mr-1" />
+                                {user.email}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>{getRoleBadge(user.role)}</TableCell>
+                        <TableCell>{getStatusBadge(user.is_active)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center text-sm text-gray-500">
+                            <Calendar className="w-3 h-3 mr-1" />
+                            {new Date(user.created_at).toLocaleDateString('es-ES')}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end space-x-2">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleToggleStatus(user.id, user.is_active)}
+                            >
+                              {user.is_active ? "Desactivar" : "Activar"}
+                            </Button>
+                            <Button variant="ghost" size="sm">
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleDeleteUser(user.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -6,107 +6,69 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { FileText, Search, Filter, Eye, Download, PenTool, CheckCircle, XCircle, Clock, ArrowLeft } from "lucide-react"
+import { FileText, Search, Filter, Eye, Download, PenTool, CheckCircle, XCircle, Clock, ArrowLeft, AlertCircle, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-
-// Datos simulados expandidos
-const mockDocuments = [
-  {
-    id: 1,
-    title: "Solicitud de Vacaciones - Enero 2024",
-    status: "En revisión",
-    date: "2024-01-15",
-    signatures: 0,
-    author: "Juan Pérez",
-    size: "245 KB",
-    type: "Solicitud",
-  },
-  {
-    id: 2,
-    title: "Contrato de Trabajo - María González",
-    status: "Firmado",
-    date: "2024-01-14",
-    signatures: 3,
-    author: "RRHH",
-    size: "1.2 MB",
-    type: "Contrato",
-  },
-  {
-    id: 3,
-    title: "Informe Mensual Diciembre 2023",
-    status: "Rechazado",
-    date: "2024-01-13",
-    signatures: 0,
-    author: "Carlos Silva",
-    size: "890 KB",
-    type: "Informe",
-  },
-  {
-    id: 4,
-    title: "Propuesta Proyecto Digitalización",
-    status: "En revisión",
-    date: "2024-01-12",
-    signatures: 1,
-    author: "Ana López",
-    size: "2.1 MB",
-    type: "Propuesta",
-  },
-  {
-    id: 5,
-    title: "Política de Seguridad Actualizada",
-    status: "Firmado",
-    date: "2024-01-11",
-    signatures: 5,
-    author: "Seguridad TI",
-    size: "567 KB",
-    type: "Política",
-  },
-  {
-    id: 6,
-    title: "Presupuesto Anual 2024",
-    status: "En revisión",
-    date: "2024-01-10",
-    signatures: 2,
-    author: "Finanzas",
-    size: "3.4 MB",
-    type: "Presupuesto",
-  },
-]
+import { AuthService } from "@/lib/authService"
+import { DocumentService } from "@/lib/documentService"
+import { Document } from "@/lib/api"
 
 export default function DocumentsPage() {
   const [userRole, setUserRole] = useState("")
+  const [documents, setDocuments] = useState<Document[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [typeFilter, setTypeFilter] = useState("all")
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState("")
   const router = useRouter()
 
   useEffect(() => {
-    const role = localStorage.getItem("userRole")
-    if (!role) {
-      router.push("/")
-      return
+    const checkAuth = async () => {
+      try {
+        const role = AuthService.getCurrentUserRole()
+        if (!role) {
+          router.push("/")
+          return
+        }
+        setUserRole(role)
+        await loadDocuments()
+      } catch (error) {
+        console.error("Error checking auth:", error)
+        router.push("/")
+      }
     }
-    setUserRole(role)
+    checkAuth()
   }, [router])
+
+  const loadDocuments = async () => {
+    try {
+      setIsLoading(true)
+      const response = await DocumentService.getUserDocuments()
+      setDocuments(response.documents)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Error al cargar documentos")
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "En revisión":
+      case "PENDING":
         return (
           <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
             <Clock className="w-3 h-3 mr-1" />
             En revisión
           </Badge>
         )
-      case "Firmado":
+      case "SIGNED":
         return (
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
             <CheckCircle className="w-3 h-3 mr-1" />
             Firmado
           </Badge>
         )
-      case "Rechazado":
+      case "REJECTED":
         return (
           <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
             <XCircle className="w-3 h-3 mr-1" />
@@ -118,18 +80,31 @@ export default function DocumentsPage() {
     }
   }
 
-  const filteredDocuments = mockDocuments.filter((doc) => {
-    const matchesSearch =
-      doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      doc.author.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredDocuments = documents.filter((doc) => {
+    const matchesSearch = doc.filename.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === "all" || doc.status === statusFilter
-    const matchesType = typeFilter === "all" || doc.type === typeFilter
 
-    return matchesSearch && matchesStatus && matchesType
+    return matchesSearch && matchesStatus
   })
 
   const canSign = (status: string) => {
-    return (userRole === "supervisor" || userRole === "firmante") && status === "En revisión"
+    return (userRole === "SUPERVISOR" || userRole === "SIGNER") && status === "PENDING"
+  }
+
+  const handleDownload = async (documentId: number) => {
+    try {
+      const blob = await DocumentService.downloadDocument(documentId)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `documento-${documentId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Error al descargar documento")
+    }
   }
 
   if (!userRole) return null
@@ -157,6 +132,17 @@ export default function DocumentsPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2 text-red-600">
+            <AlertCircle className="w-4 h-4" />
+            <span>{error}</span>
+            <Button variant="ghost" size="sm" onClick={() => setError("")} className="ml-auto">
+              ×
+            </Button>
+          </div>
+        )}
+
         {/* Filters */}
         <Card className="mb-6">
           <CardHeader>
@@ -166,7 +152,7 @@ export default function DocumentsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
@@ -183,24 +169,9 @@ export default function DocumentsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos los estados</SelectItem>
-                  <SelectItem value="En revisión">En revisión</SelectItem>
-                  <SelectItem value="Firmado">Firmado</SelectItem>
-                  <SelectItem value="Rechazado">Rechazado</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los tipos</SelectItem>
-                  <SelectItem value="Solicitud">Solicitud</SelectItem>
-                  <SelectItem value="Contrato">Contrato</SelectItem>
-                  <SelectItem value="Informe">Informe</SelectItem>
-                  <SelectItem value="Propuesta">Propuesta</SelectItem>
-                  <SelectItem value="Política">Política</SelectItem>
-                  <SelectItem value="Presupuesto">Presupuesto</SelectItem>
+                  <SelectItem value="PENDING">En revisión</SelectItem>
+                  <SelectItem value="SIGNED">Firmado</SelectItem>
+                  <SelectItem value="REJECTED">Rechazado</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -209,7 +180,6 @@ export default function DocumentsPage() {
                 onClick={() => {
                   setSearchTerm("")
                   setStatusFilter("all")
-                  setTypeFilter("all")
                 }}
               >
                 Limpiar Filtros
@@ -226,7 +196,7 @@ export default function DocumentsPage() {
                 <CardTitle>Documentos ({filteredDocuments.length})</CardTitle>
                 <CardDescription>Gestiona y revisa todos los documentos del sistema</CardDescription>
               </div>
-              {(userRole === "empleado" || userRole === "firmante") && (
+              {(userRole === "EMPLOYEE" || userRole === "SIGNER") && (
                 <Link href="/upload">
                   <Button>
                     <FileText className="w-4 h-4 mr-2" />
@@ -237,68 +207,74 @@ export default function DocumentsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {filteredDocuments.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">No se encontraron documentos con los filtros aplicados</p>
-                </div>
-              ) : (
-                filteredDocuments.map((doc) => (
-                  <div key={doc.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-start space-x-4 flex-1">
-                        <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <FileText className="w-5 h-5 text-blue-600" />
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                <span className="ml-2 text-gray-600">Cargando documentos...</span>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredDocuments.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500">No se encontraron documentos con los filtros aplicados</p>
+                  </div>
+                ) : (
+                  filteredDocuments.map((doc) => (
+                    <div key={doc.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-start space-x-4 flex-1">
+                          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <FileText className="w-5 h-5 text-blue-600" />
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-gray-900 truncate">{doc.filename}</h3>
+                            <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500">
+                              <span>{new Date(doc.created_at).toLocaleDateString('es-ES')}</span>
+                              <span>•</span>
+                              <span>ID: {doc.id}</span>
+                            </div>
+                            <div className="flex items-center space-x-2 mt-2">
+                              {getStatusBadge(doc.status)}
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-medium text-gray-900 truncate">{doc.title}</h3>
-                          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500">
-                            <span>Por: {doc.author}</span>
-                            <span>•</span>
-                            <span>{doc.date}</span>
-                            <span>•</span>
-                            <span>{doc.size}</span>
-                            <span>•</span>
-                            <span>{doc.signatures} firmas</span>
-                          </div>
-                          <div className="flex items-center space-x-2 mt-2">
-                            {getStatusBadge(doc.status)}
-                            <Badge variant="secondary">{doc.type}</Badge>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-2 ml-4">
-                        <Link href={`/documents/${doc.id}`}>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="w-4 h-4 mr-1" />
-                            Ver
-                          </Button>
-                        </Link>
-
-                        {doc.status === "Firmado" && (
-                          <Button variant="ghost" size="sm">
-                            <Download className="w-4 h-4 mr-1" />
-                            Descargar
-                          </Button>
-                        )}
-
-                        {canSign(doc.status) && (
-                          <Link href={`/documents/${doc.id}/sign`}>
-                            <Button size="sm">
-                              <PenTool className="w-4 h-4 mr-1" />
-                              Firmar
+                        <div className="flex items-center space-x-2 ml-4">
+                          <Link href={`/documents/${doc.id}`}>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="w-4 h-4 mr-1" />
+                              Ver
                             </Button>
                           </Link>
-                        )}
+
+                          {doc.status === "SIGNED" && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleDownload(doc.id)}
+                            >
+                              <Download className="w-4 h-4 mr-1" />
+                              Descargar
+                            </Button>
+                          )}
+
+                          {canSign(doc.status) && (
+                            <Link href={`/documents/${doc.id}/sign`}>
+                              <Button size="sm">
+                                <PenTool className="w-4 h-4 mr-1" />
+                                Firmar
+                              </Button>
+                            </Link>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  ))
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

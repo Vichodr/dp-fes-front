@@ -7,30 +7,29 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { FileText, Shield, Users, Clock } from "lucide-react"
+import { FileText, Shield, Users, Clock, AlertCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { AuthService } from "@/lib/authService"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Simulación de login - en producción esto sería una llamada al backend
-    if (email && password) {
-      // Simular diferentes roles basados en el email
-      const role = email.includes("gestor")
-        ? "gestor"
-        : email.includes("supervisor")
-          ? "supervisor"
-          : email.includes("firmante")
-            ? "firmante"
-            : "empleado"
+    setError("")
+    setIsLoading(true)
 
-      localStorage.setItem("userRole", role)
-      localStorage.setItem("userEmail", email)
+    try {
+      await AuthService.login({ email, password })
       router.push("/dashboard")
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Error al iniciar sesión")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -58,6 +57,7 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="space-y-2">
@@ -68,10 +68,19 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    disabled={isLoading}
                   />
                 </div>
-                <Button type="submit" className="w-full">
-                  Ingresar al Sistema
+                
+                {error && (
+                  <div className="flex items-center space-x-2 text-red-600 text-sm">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Iniciando sesión..." : "Ingresar al Sistema"}
                 </Button>
               </form>
 
@@ -79,18 +88,17 @@ export default function LoginPage() {
                 <p className="text-sm text-gray-600 mb-2">Usuarios de prueba:</p>
                 <div className="text-xs space-y-1">
                   <p>
-                    <strong>Empleado:</strong> empleado@test.cl
+                    <strong>Gestor:</strong> gestor@empresa.com / gestor123
                   </p>
                   <p>
-                    <strong>Supervisor:</strong> supervisor@test.cl
+                    <strong>Empleado:</strong> juan@empresa.com / juan123
                   </p>
                   <p>
-                    <strong>Firmante:</strong> firmante@test.cl
+                    <strong>Supervisor:</strong> ana@empresa.com / ana123
                   </p>
                   <p>
-                    <strong>Gestor:</strong> gestor@test.cl
+                    <strong>Admin:</strong> carlos@empresa.com / carlos123
                   </p>
-                  <p className="text-gray-500">Contraseña: cualquiera</p>
                 </div>
               </div>
             </CardContent>
