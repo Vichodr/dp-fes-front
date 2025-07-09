@@ -49,6 +49,15 @@ export interface Document {
   status: string;
   upload_date: string;
   user_id: number;
+  // Propiedades adicionales según la respuesta real del backend
+  user?: User;
+  file_size?: number;
+  signatures?: any[];
+  hash?: string;
+  file_path?: string;
+  rejection_date?: string | null;
+  signed_date?: string | null;
+  history?: any[];
 }
 
 // Función para obtener el token de autenticación

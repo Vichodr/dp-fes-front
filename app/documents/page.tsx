@@ -83,10 +83,11 @@ export default function DocumentsPage() {
 
   const filteredDocuments = documents.filter((doc) => {
     if (userRole === "SUPERVISOR") {
-      const isPending = doc.status === "IN_REVIEW" || doc.status === "PENDING";
       const matchesSearch = doc.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
-      return isPending && matchesSearch && matchesStatus;
+      if (statusFilter === "all") {
+        return matchesSearch;
+      }
+      return doc.status === statusFilter && matchesSearch;
     }
     const matchesSearch = doc.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || doc.status === statusFilter;

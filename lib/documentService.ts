@@ -38,7 +38,13 @@ export class DocumentService {
 
   // Obtener un documento específico
   static async getDocument(documentId: number): Promise<Document> {
-    return await apiRequest<Document>(`/documents/${documentId}`);
+    // Intentar obtener todos los documentos y filtrar por id
+    const { documents } = await this.getUserDocuments();
+    const doc = documents.find((d) => d.id === documentId);
+    if (!doc) {
+      throw new Error('Documento no encontrado');
+    }
+    return doc;
   }
 
   // Descargar un documento
@@ -57,5 +63,12 @@ export class DocumentService {
     }
 
     return response.blob();
+  }
+
+  // Firmar un documento
+  static async signDocument(documentId: number): Promise<any> {
+    return await apiRequest<any>(`/documents/${documentId}/sign`, {
+      method: 'POST',
+    });
   }
 } 

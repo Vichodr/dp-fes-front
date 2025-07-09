@@ -11,26 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { FileText, PenTool, Shield, AlertTriangle, CheckCircle, ArrowLeft, User, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useParams } from "next/navigation"
-
-// Datos simulados del documento
-const mockDocument = {
-  id: 1,
-  title: "Solicitud de Vacaciones - Enero 2024",
-  status: "En revisión",
-  date: "2024-01-15",
-  author: "Juan Pérez",
-  size: "245 KB",
-  type: "Solicitud",
-  hash: "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
-  signatures: [
-    {
-      id: 1,
-      signer: "María González - Supervisor",
-      date: "2024-01-16 10:30",
-      status: "Firmado",
-    },
-  ],
-}
+import { DocumentService } from "@/lib/documentService"
 
 export default function SignDocumentPage() {
   const [userRole, setUserRole] = useState("")
@@ -39,6 +20,8 @@ export default function SignDocumentPage() {
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [isSigningProcess, setIsSigningProcess] = useState(false)
   const [signatureComplete, setSignatureComplete] = useState(false)
+  const [document, setDocument] = useState<any>(null)
+  const [error, setError] = useState("")
   const router = useRouter()
   const params = useParams()
 
@@ -51,26 +34,61 @@ export default function SignDocumentPage() {
     }
     setUserRole(role)
     setUserEmail(email)
-  }, [router])
+    // Obtener documento real
+    const fetchDocument = async () => {
+      try {
+        const rawDoc = await DocumentService.getDocument(Number(params.id));
+        // Adaptar las firmas
+        const signatures = (rawDoc.signatures || []).map((sig: any) => ({
+          id: sig.id,
+          signer: sig.user?.name || "Desconocido",
+          signerEmail: sig.user?.email || "",
+          signerRole: sig.user?.role || "",
+          date: sig.ts ? new Date(sig.ts).toLocaleString("es-CL") : "",
+          hash: sig.sha256_hash || "",
+        }));
+
+        // Adaptar el documento
+        const document = {
+          ...rawDoc,
+          title: rawDoc.name,
+          author: rawDoc.user?.name || "Desconocido",
+          authorEmail: rawDoc.user?.email || "",
+          date: rawDoc.upload_date ? new Date(rawDoc.upload_date).toLocaleString("es-CL") : "",
+          size: rawDoc.file_size ? `${(rawDoc.file_size / 1024).toFixed(1)} KB` : "",
+          signatures,
+          hash: rawDoc.hash || "No disponible",
+          status: rawDoc.status || "",
+          type: "PDF",
+          created: rawDoc.upload_date ? new Date(rawDoc.upload_date).toLocaleString("es-CL") : "",
+        };
+        setDocument(document);
+        console.log('Documento adaptado para la vista:', document);
+      } catch (err) {
+        setError("No se pudo cargar el documento");
+      }
+    }
+    fetchDocument()
+  }, [router, params.id])
 
   const handleSign = async () => {
     if (!acceptTerms) {
       alert("Debes aceptar los términos y condiciones para firmar")
       return
     }
-
     setIsSigningProcess(true)
-
-    // Simular proceso de firma
-    setTimeout(() => {
+    setError("")
+    try {
+      await DocumentService.signDocument(Number(params.id))
       setIsSigningProcess(false)
       setSignatureComplete(true)
-
-      // Redirigir después de 3 segundos
       setTimeout(() => {
         router.push(`/documents/${params.id}`)
       }, 3000)
-    }, 2000)
+    } catch (err: any) {
+      setIsSigningProcess(false)
+      setError(err.message || "Error al firmar el documento")
+    }
   }
 
   const getRoleDisplayName = (role: string) => {
@@ -89,6 +107,11 @@ export default function SignDocumentPage() {
   }
 
   if (!userRole) return null
+  if (error) return <div className="p-8 text-center text-red-600">{error}</div>
+
+  if (!document) {
+    return <div className="p-8 text-center text-gray-600">Cargando documento...</div>
+  }
 
   if (signatureComplete) {
     return (
@@ -144,17 +167,17 @@ export default function SignDocumentPage() {
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <h3 className="font-medium text-lg">{mockDocument.title}</h3>
+                    <h3 className="font-medium text-lg">{document.title}</h3>
                     <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1">
                       <div className="flex items-center space-x-1">
                         <User className="w-4 h-4" />
-                        <span>{mockDocument.author}</span>
+                        <span>{document.author}</span>
                       </div>
                       <div className="flex items-center space-x-1">
                         <Calendar className="w-4 h-4" />
-                        <span>{mockDocument.date}</span>
+                        <span>{document.date}</span>
                       </div>
-                      <span>{mockDocument.size}</span>
+                      <span>{document.size}</span>
                     </div>
                   </div>
 
@@ -268,23 +291,27 @@ export default function SignDocumentPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Firmas Actuales</CardTitle>
-                <CardDescription>{mockDocument.signatures.length}/5 firmas aplicadas</CardDescription>
+                <CardDescription>{document.signatures.length}/5 firmas aplicadas</CardDescription>
               </CardHeader>
               <CardContent>
-                {mockDocument.signatures.length === 0 ? (
+                {document.signatures.length === 0 ? (
                   <p className="text-sm text-gray-500">No hay firmas aún</p>
                 ) : (
                   <div className="space-y-3">
-                    {mockDocument.signatures.map((signature) => (
+                    {document.signatures.map((signature: any) => (
                       <div key={signature.id} className="border rounded-lg p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <p className="font-medium text-sm">{signature.signer}</p>
+                          <div>
+                            <p className="font-medium text-sm">{signature.signer}</p>
+                            <p className="text-xs text-gray-500">{signature.signerEmail} | {signature.signerRole}</p>
+                          </div>
                           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                             <CheckCircle className="w-3 h-3 mr-1" />
                             Firmado
                           </Badge>
                         </div>
-                        <p className="text-xs text-gray-500">{signature.date}</p>
+                        <p className="text-xs text-gray-500">Fecha: {signature.date}</p>
+                        <p className="text-xs text-gray-500 break-all">Hash: {signature.hash}</p>
                       </div>
                     ))}
                   </div>
@@ -304,7 +331,7 @@ export default function SignDocumentPage() {
                 <div className="text-sm">
                   <p className="font-medium mb-1">Hash del Documento:</p>
                   <code className="text-xs text-gray-600 break-all bg-gray-50 p-2 rounded block">
-                    {mockDocument.hash}
+                    {document.hash}
                   </code>
                 </div>
                 <div className="text-sm">
