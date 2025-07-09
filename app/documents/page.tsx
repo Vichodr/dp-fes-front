@@ -55,6 +55,7 @@ export default function DocumentsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "PENDING":
+      case "IN_REVIEW":
         return (
           <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
             <Clock className="w-3 h-3 mr-1" />
@@ -81,14 +82,19 @@ export default function DocumentsPage() {
   }
 
   const filteredDocuments = documents.filter((doc) => {
-    const matchesSearch = doc.filename.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "all" || doc.status === statusFilter
-
-    return matchesSearch && matchesStatus
+    if (userRole === "SUPERVISOR") {
+      const isPending = doc.status === "IN_REVIEW" || doc.status === "PENDING";
+      const matchesSearch = doc.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
+      return isPending && matchesSearch && matchesStatus;
+    }
+    const matchesSearch = doc.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
+    return matchesSearch && matchesStatus;
   })
 
   const canSign = (status: string) => {
-    return (userRole === "SUPERVISOR" || userRole === "SIGNER") && status === "PENDING"
+    return (userRole === "SUPERVISOR" || userRole === "SIGNER") && (status === "PENDING" || status === "IN_REVIEW")
   }
 
   const handleDownload = async (documentId: number) => {
@@ -170,6 +176,7 @@ export default function DocumentsPage() {
                 <SelectContent>
                   <SelectItem value="all">Todos los estados</SelectItem>
                   <SelectItem value="PENDING">En revisión</SelectItem>
+                  <SelectItem value="IN_REVIEW">En revisión</SelectItem>
                   <SelectItem value="SIGNED">Firmado</SelectItem>
                   <SelectItem value="REJECTED">Rechazado</SelectItem>
                 </SelectContent>
@@ -229,9 +236,9 @@ export default function DocumentsPage() {
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-gray-900 truncate">{doc.filename}</h3>
+                            <h3 className="font-medium text-gray-900 truncate">{doc.name}</h3>
                             <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500">
-                              <span>{new Date(doc.created_at).toLocaleDateString('es-ES')}</span>
+                              <span>{new Date(doc.upload_date).toLocaleDateString('es-ES')}</span>
                               <span>•</span>
                               <span>ID: {doc.id}</span>
                             </div>

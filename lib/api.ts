@@ -45,9 +45,9 @@ export interface UserListResponse {
 
 export interface Document {
   id: number;
-  filename: string;
+  name: string;
   status: string;
-  created_at: string;
+  upload_date: string;
   user_id: number;
 }
 
